@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.concurrent.ExecutionException;
 
 import androidx.annotation.NonNull;
+
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
@@ -130,23 +131,9 @@ public class TusPlugin implements FlutterPlugin, MethodCallHandler {
 
             System.out.println("Starting upload");
 
-            HandleFileUpload b = new HandleFileUpload(client, fileUploadUrl, methodChannel, endpointUrl, metadata);
-            try {
-                HashMap<String, String> c = b.execute().get();
-                if (c.containsKey("error")) {
-                    result.error("ErrorFromExecution", c.get("error"), c.get("reason"));
-                } else {
-                    result.success(c);
-                }
-            } catch (ExecutionException e) {
-                StringWriter errors = new StringWriter();
-                e.printStackTrace(new PrintWriter(errors));
-                result.error("ExecutionException", e.getMessage(), errors.toString());
-            } catch (InterruptedException e) {
-                StringWriter errors = new StringWriter();
-                e.printStackTrace(new PrintWriter(errors));
-                result.error("InterruptedException", e.getMessage(), errors.toString());
-            }
+            int chunkSize = (int) arguments.get("chunkSize");
+            HandleFileUpload b = new HandleFileUpload(client, fileUploadUrl, methodChannel, endpointUrl, metadata, chunkSize);
+            b.execute();
         } else {
             result.notImplemented();
         }
@@ -167,13 +154,15 @@ class HandleFileUpload extends AsyncTask<Void, HashMap<String, String>, HashMap<
     final MethodChannel methodChannel;
     final String endpointUrl;
     final HashMap<String, String> metadata;
+    final int chunkSize;
 
-    HandleFileUpload(TusClient client, String uploadFileUrl, MethodChannel methodChannel, String endpointUrl, HashMap<String, String> metadata) {
+    HandleFileUpload(TusClient client, String uploadFileUrl, MethodChannel methodChannel, String endpointUrl, HashMap<String, String> metadata, int chunkSize) {
         this.client = client;
         this.uploadFileUrl = uploadFileUrl;
         this.methodChannel = methodChannel;
         this.endpointUrl = endpointUrl;
         this.metadata = metadata;
+        this.chunkSize = chunkSize;
     }
 
     @Override
@@ -183,7 +172,8 @@ class HandleFileUpload extends AsyncTask<Void, HashMap<String, String>, HashMap<
         final TusUpload upload;
         try {
             upload = new TusUpload(file);
-            metadata.put("filename", file.getName());
+            if (metadata.get("filename") == null)
+                metadata.put("filename", file.getName());
             upload.setMetadata(metadata);
         } catch (FileNotFoundException e) {
             StringWriter errors = new StringWriter();
@@ -205,6 +195,7 @@ class HandleFileUpload extends AsyncTask<Void, HashMap<String, String>, HashMap<
                 // upload and get a TusUploader in return. This class is responsible for opening
                 // a connection to the remote server and doing the uploading.
                 final TusUploader uploader = client.resumeOrCreateUpload(upload);
+                uploader.setChunkSize(chunkSize);
 
                 // Upload the file as long as data is available. Once the
                 // file has been fully uploaded the method will return -1
